@@ -1,36 +1,38 @@
 #!/bin/bash
 
-ADDRESS=$1
+# Script parameters
+NETWORK=$1
+ADDRESS=$2
 
 fetch_rewards () {
-  curl --silent --location --request POST 'https://polkadot.subscan.io/api/scan/account/reward_slash' \
+  curl --silent --location --request POST 'https://'$NETWORK'.subscan.io/api/scan/account/reward_slash' \
     --header 'Content-Type: application/json' \
     --data-raw '{
       "address": "'$ADDRESS'",
       "page": '$1',
-      "row": 10
+      "row": '$2'
     }'
 }
 
 fetch_price () {
-  curl --silent --location --request POST 'https://polkadot.subscan.io/api/open/price' \
+  curl --silent --location --request POST 'https://'$NETWORK'.subscan.io/api/open/price' \
     --header 'Content-Type: application/json' \
     --data-raw '{
       "time": '$1'
     }'
 }
 
-# csv header
-echo "block_num,block_time,amount_dot,price_usd,price_time"
+fetch_conversion_rate () {
+  curl --silent --location 'https://api.exchangeratesapi.io/'$1'?base=USD'
+}
 
-PAGE=0
+COUNT=$(fetch_rewards 0 1 | jq '.data.count')
+ROWS_PER_PAGE=20
+LAST_PAGE_NUM=`expr $COUNT / $ROWS_PER_PAGE`
 
-while true; do
-  REWARDS=$(fetch_rewards "$PAGE")
-  if (($(echo "$REWARDS" | jq '.data.list | length') == 0)); then
-    break
-  fi
-  for row in $(echo $REWARDS | jq -c '.data.list[]'); do
+echo "block_num,block_time,amount_dot,price_usd,one_usd_in_euro,price_time"
+for page in $(seq 0 $LAST_PAGE_NUM); do
+  for row in $(fetch_rewards ${page} "$ROWS_PER_PAGE" | jq -c '.data.list[]'); do
     _jq() {
       echo ${row} | jq -r ${1}
     }
@@ -44,11 +46,8 @@ while true; do
     price_usd=$(echo "$price" | jq '.data.records[0].price')
     price_timestamp=$(echo "$price" | jq '.data.records[0].time')
     price_time=$(date -d @"$price_timestamp" +'%Y-%m-%d %H:%M:%S')
+    conv_rate=$(fetch_conversion_rate $(date -d @"$price_timestamp" +'%Y-%m-%d') | jq '.rates.EUR')
 
-    echo "$block_num,\"$block_time\",$amount_dot,$price_usd,\"$price_time\""
+    echo "$block_num,\"$block_time\",$amount_dot,$price_usd,$conv_rate,\"$price_time\""
   done
-  PAGE=$((PAGE + 1))
 done
-
-
-
